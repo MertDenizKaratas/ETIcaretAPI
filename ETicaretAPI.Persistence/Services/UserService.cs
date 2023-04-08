@@ -19,13 +19,13 @@ namespace ETicaretAPI.Persistence.Services
     public class UserService : IUserService
     {
         readonly UserManager<Domain.Entities.Identity.AppUser> _userManager;
-        //readonly IEndpointReadRepository _endpointReadRepository;
+        readonly IEndpointReadRepository _endpointReadRepository;
 
-        public UserService(UserManager<AppUser> userManager
-/*            IEndpointReadRepository endpointReadRepository*/)
+        public UserService(UserManager<AppUser> userManager,
+            IEndpointReadRepository endpointReadRepository)
         {
             _userManager = userManager;
-            //_endpointReadRepository = endpointReadRepository;
+            _endpointReadRepository = endpointReadRepository;
         }
 
         public async Task<CreateUserResponse> CreateAsync(CreateUser model)
@@ -73,11 +73,9 @@ namespace ETicaretAPI.Persistence.Services
             }
         }
 
-        public async Task<List<ListUser>> GetAllUsersAsync(int page, int size)
+        public async Task<List<ListUser>> GetAllUsersAsync()
         {
             var users = await _userManager.Users
-                  .Skip(page * size)
-                  .Take(size)
                   .ToListAsync();
 
             return users.Select(user => new ListUser
@@ -118,57 +116,61 @@ namespace ETicaretAPI.Persistence.Services
             return new string[] { };
         }
 
-        public Task<bool> HasRolePermissionToEndpointAsync(string name, string code)
+        public async Task<bool> HasRolePermissionToEndpointAsync(string name, string code)
         {
-            throw new NotImplementedException();
+            var userRoles = await GetRolesToUserAsync(name);
+
+            if (!userRoles.Any())
+                return false;
+
+            Endpoint? endpoint = await _endpointReadRepository.Table
+                     .Include(e => e.Roles)
+                     .FirstOrDefaultAsync(e => e.Code == code);
+
+            if (endpoint == null)
+                return false;
+
+            var hasRole = false;
+            var endpointRoles = endpoint.Roles.Select(r => r.Name);
+
+            //foreach (var userRole in userRoles)
+            //{
+            //    if (!hasRole)
+            //    {
+            //        foreach (var endpointRole in endpointRoles)
+            //            if (userRole == endpointRole)
+            //            {
+            //                hasRole = true;
+            //                break;
+            //            }
+            //    }
+            //    else
+            //        break;
+            //}
+
+            //return hasRole;
+
+            foreach (var userRole in userRoles)
+            {
+                foreach (var endpointRole in endpointRoles)
+                    if (userRole == endpointRole)
+                        return true;
+            }
+
+            return false;
         }
 
-        //public async Task<bool> HasRolePermissionToEndpointAsync(string name, string code)
-        //{
-        //    var userRoles = await GetRolesToUserAsync(name);
+        public async Task<ListUser> GetUserById(string userId)
+        {
+            var users = await _userManager.Users.Where(i=>i.Id==userId).FirstOrDefaultAsync();
 
-        //    if (!userRoles.Any())
-        //        return false;
-
-        //    Endpoint? endpoint = await _endpointReadRepository.Table
-        //             .Include(e => e.Roles)
-        //             .FirstOrDefaultAsync(e => e.Code == code);
-
-        //    if (endpoint == null)
-        //        return false;
-
-        //    var hasRole = false;
-        //    var endpointRoles = endpoint.Roles.Select(r => r.Name);
-
-
-        ////BURASI YOK
-        //foreach (var userRole in userRoles)
-        //{
-        //    if (!hasRole)
-        //    {
-        //        foreach (var endpointRole in endpointRoles)
-        //            if (userRole == endpointRole)
-        //            {
-        //                hasRole = true;
-        //                break;
-        //            }
-        //    }
-        //    else
-        //        break;
-        //}
-
-        //return hasRole;
-
-        ////BURASI YOK
-
-        //    foreach (var userRole in userRoles)
-        //    {
-        //        foreach (var endpointRole in endpointRoles)
-        //            if (userRole == endpointRole)
-        //                return true;
-        //    }
-
-        //    return false;
-        //}
+            return new ListUser()
+            {
+                NameSurname= users.NameSurname,
+                Email=users.Email,
+                Id=users.Id,
+                UserName=users.UserName
+            };
+        }
     }
 }

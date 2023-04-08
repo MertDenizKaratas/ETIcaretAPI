@@ -1,7 +1,8 @@
 ﻿using ETicaretAPI.Application.Abstractions.Services;
 using ETicaretAPI.Application.Abstractions.Token;
 using ETicaretAPI.Application.DTOs;
-
+using ETicaretAPI.Application.DTOs.Facebook;
+using ETicaretAPI.Application.DTOs.User;
 using ETicaretAPI.Application.Exceptions;
 using ETicaretAPI.Application.Helpers;
 using ETicaretAPI.Domain.Entities.Identity;
@@ -27,13 +28,14 @@ namespace ETicaretAPI.Persistence.Services
         readonly ITokenHandler _tokenHandler;
         readonly SignInManager<Domain.Entities.Identity.AppUser> _signInManager;
         readonly IUserService _userService;
-        //readonly IMailService _mailService;
+        readonly IMailService _mailService;
         public AuthService(IHttpClientFactory httpClientFactory,
             IConfiguration configuration,
             UserManager<Domain.Entities.Identity.AppUser> userManager,
             ITokenHandler tokenHandler,
             SignInManager<AppUser> signInManager,
-            IUserService userService
+            IUserService userService,
+            IMailService mailService
 /*            IMailService mailService*/)
         {
             _httpClient = httpClientFactory.CreateClient();
@@ -42,7 +44,10 @@ namespace ETicaretAPI.Persistence.Services
             _tokenHandler = tokenHandler;
             _signInManager = signInManager;
             _userService = userService;
-            //_mailService = mailService;
+            _mailService = mailService;
+
+            _mailService = mailService;
+
         }
         async Task<Token> CreateUserExternalAsync(AppUser user, string email, string name, UserLoginInfo info, int accessTokenLifeTime)
         {
@@ -74,29 +79,29 @@ namespace ETicaretAPI.Persistence.Services
             }
             throw new Exception("Invalid external authentication.");
         }
-        //public async Task<Token> FacebookLoginAsync(string authToken, int accessTokenLifeTime)
-        //{
-        //    string accessTokenResponse = await _httpClient.GetStringAsync($"https://graph.facebook.com/oauth/access_token?client_id={_configuration["ExternalLoginSettings:Facebook:Client_ID"]}&client_secret={_configuration["ExternalLoginSettings:Facebook:Client_Secret"]}&grant_type=client_credentials");
+        public async Task<Token> FacebookLoginAsync(string authToken, int accessTokenLifeTime)
+        {
+            string accessTokenResponse = await _httpClient.GetStringAsync($"https://graph.facebook.com/oauth/access_token?client_id={_configuration["ExternalLoginSettings:Facebook:Client_ID"]}&client_secret={_configuration["ExternalLoginSettings:Facebook:Client_Secret"]}&grant_type=client_credentials");
 
-        //    FacebookAccessTokenResponse? facebookAccessTokenResponse = JsonSerializer.Deserialize<FacebookAccessTokenResponse>(accessTokenResponse);
+            FacebookAccessTokenResponse? facebookAccessTokenResponse = JsonSerializer.Deserialize<FacebookAccessTokenResponse>(accessTokenResponse);
 
-        //    string userAccessTokenValidation = await _httpClient.GetStringAsync($"https://graph.facebook.com/debug_token?input_token={authToken}&access_token={facebookAccessTokenResponse?.AccessToken}");
+            string userAccessTokenValidation = await _httpClient.GetStringAsync($"https://graph.facebook.com/debug_token?input_token={authToken}&access_token={facebookAccessTokenResponse?.AccessToken}");
 
-        //    FacebookUserAccessTokenValidation? validation = JsonSerializer.Deserialize<FacebookUserAccessTokenValidation>(userAccessTokenValidation);
+            FacebookUserAccessTokenValidation? validation = JsonSerializer.Deserialize<FacebookUserAccessTokenValidation>(userAccessTokenValidation);
 
-        //    if (validation?.Data.IsValid != null)
-        //    {
-        //        string userInfoResponse = await _httpClient.GetStringAsync($"https://graph.facebook.com/me?fields=email,name&access_token={authToken}");
+            if (validation?.Data.IsValid != null)
+            {
+                string userInfoResponse = await _httpClient.GetStringAsync($"https://graph.facebook.com/me?fields=email,name&access_token={authToken}");
 
-        //        FacebookUserInfoResponse? userInfo = JsonSerializer.Deserialize<FacebookUserInfoResponse>(userInfoResponse);
+                FacebookUserInfoResponse? userInfo = JsonSerializer.Deserialize<FacebookUserInfoResponse>(userInfoResponse);
 
-        //        var info = new UserLoginInfo("FACEBOOK", validation.Data.UserId, "FACEBOOK");
-        //        Domain.Entities.Identity.AppUser user = await _userManager.FindByLoginAsync(info.LoginProvider, info.ProviderKey);
+                var info = new UserLoginInfo("FACEBOOK", validation.Data.UserId, "FACEBOOK");
+                Domain.Entities.Identity.AppUser user = await _userManager.FindByLoginAsync(info.LoginProvider, info.ProviderKey);
 
-        //        return await CreateUserExternalAsync(user, userInfo.Email, userInfo.Name, info, accessTokenLifeTime);
-        //    }
-        //    throw new Exception("Invalid external authentication.");
-        //}
+                return await CreateUserExternalAsync(user, userInfo.Email, userInfo.Name, info, accessTokenLifeTime);
+            }
+            throw new Exception("Invalid external authentication.");
+        }
         public async Task<Token> GoogleLoginAsync(string idToken, int accessTokenLifeTime)
         {
             var settings = new GoogleJsonWebSignature.ValidationSettings()
@@ -144,20 +149,20 @@ namespace ETicaretAPI.Persistence.Services
                 throw new NotFoundUserException();
         }
 
-        //public async Task PasswordResetAsnyc(string email)
-        //{
-        //    AppUser user = await _userManager.FindByEmailAsync(email);
-        //    if (user != null)
-        //    {
-        //        string resetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
+        public async Task PasswordResetAsnyc(string email)
+        {
+            AppUser user = await _userManager.FindByEmailAsync(email);
+            if (user != null)
+            {
+                string resetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
 
-        //        //byte[] tokenBytes = Encoding.UTF8.GetBytes(resetToken);
-        //        //resetToken = WebEncoders.Base64UrlEncode(tokenBytes);
-        //        resetToken = resetToken.UrlEncode();
+                //byte[] tokenBytes = Encoding.UTF8.GetBytes(resetToken);
+                //resetToken = WebEncoders.Base64UrlEncode(tokenBytes);
+                resetToken = resetToken.UrlEncode();
 
-        //        await _mailService.SendPasswordResetMailAsync(email, user.Id, resetToken);
-        //    }
-        //}
+                await _mailService.SendPasswordResetMailAsync(email, user.Id, resetToken);
+            }
+        }
 
         public async Task<bool> VerifyResetTokenAsync(string resetToken, string userId)
         {
@@ -173,14 +178,24 @@ namespace ETicaretAPI.Persistence.Services
             return false;
         }
 
-        public Task PasswordResetAsnyc(string email)
+        public async Task<ListUser> RefreshTokenGetUser(string refreshToken)
         {
-            throw new NotImplementedException();
+            AppUser? user = await _userManager.Users.FirstOrDefaultAsync(u => u.RefreshToken == refreshToken);
+            if (user != null && user?.RefreshTokenEndDate > DateTime.UtcNow)
+            {
+
+                return new ListUser()
+                {
+                    Id=user.Id,
+                    NameSurname=user.NameSurname,
+                    Email=user.Email,
+                    UserName=user.UserName
+                };
+            }
+            else
+                throw new NotFoundUserException();
         }
 
-        public Task<Token> FacebookLoginAsync(string authToken, int accessTokenLifeTime)
-        {
-            throw new NotImplementedException();
-        }
+
     }
 }
